@@ -1,9 +1,13 @@
+from unittest import result
+
 from fastapi import FastAPI, HTTPException,Query,status
 from schemas import (
     MovieCreate,
     MovieResponse,
     MoviePageResponse,
     MovieUpdate,
+    AIRecommendRequest,
+    MovieRecommendation
 )
 
 from database import (
@@ -18,6 +22,7 @@ from database import (
     search_movies_db,
     filter_movies_db
 )
+from ai_service import recommend_movie
 app = FastAPI()
 init_database()
 
@@ -147,3 +152,25 @@ def delete_movie_api(movie_id:int):
         "message":f"已删除ID为{movie_id}的电影",
         "deleted_movie":movie,
     }
+
+@app.post(
+    "/ai/recommend",
+    response_model=MovieRecommendation,
+)
+def ai_recommend(request: AIRecommendRequest):
+    try:
+        result = recommend_movie(request.prompt)
+
+        return result
+
+    except Exception as error:
+        print(
+            f"调用AI失败：{error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="AI服务暂时不可用",
+        )
+
+
