@@ -18,76 +18,75 @@ client = OpenAI(
     base_url=os.getenv("DEEPSEEK_BASE_URL"),
 )
 
-
-tool_schemas = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_movie_by_id",
-            "description": "根据电影ID查询电影详细信息",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "movie_id": {
-                        "type": "integer",
-                        "description": "需要查询的电影ID",
-                    }
-                },
-                "required": ["movie_id"],
+tool_registry = {
+    "get_movie_by_id": {
+        "function": get_movie_by_id,
+        "description": "根据电影ID查询电影详细信息",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "movie_id": {
+                    "type": "integer",
+                    "description": "需要查询的电影ID",
+                }
             },
+            "required": ["movie_id"],
         },
     },
 
-    {
-        "type": "function",
-        "function": {
-            "name": "search_movies_db",
-            "description": "根据关键词搜索电影，可以搜索电影名称或电影类型",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "keyword": {
-                        "type": "string",
-                        "description": "电影名称或电影类型关键词",
-                    }
-                },
-                "required": ["keyword"],
+    "search_movies_db": {
+        "function": search_movies_db,
+        "description": "根据关键词搜索电影名称或电影类型",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "keyword": {
+                    "type": "string",
+                    "description": "电影名称或类型关键词",
+                }
             },
+            "required": ["keyword"],
         },
     },
 
-    {
-        "type": "function",
-        "function": {
-            "name": "filter_movies_db",
-            "description": "根据关键词、最低评分和上映年份筛选电影",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "keyword": {
-                        "type": "string",
-                        "description": "电影名称或类型关键词",
-                    },
-                    "min_score": {
-                        "type": "number",
-                        "description": "最低评分，例如9表示评分至少9分",
-                    },
-                    "year": {
-                        "type": "integer",
-                        "description": "电影上映年份，例如1994",
-                    },
+    "filter_movies_db": {
+        "function": filter_movies_db,
+        "description": "根据关键词、最低评分和上映年份筛选电影",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "keyword": {
+                    "type": "string",
+                    "description": "电影名称或类型关键词",
                 },
-                "required": [],
+                "min_score": {
+                    "type": "number",
+                    "description": "最低评分",
+                },
+                "year": {
+                    "type": "integer",
+                    "description": "上映年份",
+                },
             },
+            "required": [],
         },
     },
-]
+}
 
-tool_map = {
-        "get_movie_by_id": get_movie_by_id,
-        "search_movies_db": search_movies_db,
-        "filter_movies_db": filter_movies_db,
-    }
+tool_schemas = []
+for tool_name, tool_info in tool_registry.items():
+    tool_schemas.append(
+        {
+            "type": "function",
+            "function": {
+                "name": tool_name,
+                "description": tool_info["description"],
+                "parameters": tool_info["parameters"],
+            },
+        }
+    )
+
+
 
 def execute_tool(tool_call):
     tool_name = tool_call.function.name
@@ -97,40 +96,39 @@ def execute_tool(tool_call):
             tool_call.function.arguments
         )
     except json.JSONDecodeError as error:
-        raise ValueError(
-            f"工具参数解析失败：{error}"
+        return {
+            "success": False,
+            "error": f"工具参数解析失败：{error}",
+        }
+
+    tool_info = tool_registry.get(tool_name)
+    tool_function = tool_info["function"]
+    if tool_info is None:
+        return {
+            "success": False,
+            "error": f"未知工具：{tool_name}",
+        }
+
+    try:
+        tool_result = tool_function(
+            **arguments
         )
+    except Exception as error:
+        return {
+            "success": False,
+            "error": f"工具执行失败：{error}",
+        }
 
-    tool_function = tool_map.get(
-        tool_name
-    )
+    if tool_result is None or tool_result == []:
+        return {
+            "success": False,
+            "error": "没有找到符合条件的数据",
+        }
 
-    if tool_function is None:
-        raise ValueError(
-            f"未知工具：{tool_name}"
-        )
-
-    print(
-        "模型选择工具：",
-        tool_name
-    )
-
-    print(
-        "工具参数：",
-        arguments
-    )
-
-    tool_result = tool_function(
-        **arguments
-    )
-
-    print(
-        "工具执行结果：",
-        tool_result
-    )
-
-    return tool_result
-
+    return {
+        "success": True,
+        "data": tool_result,
+    }
 def run_movie_agent(
     user_input: str,
     max_steps: int = 5,
@@ -141,8 +139,11 @@ def run_movie_agent(
             "role": "system",
             "content": (
                 "你是一个电影助手。"
-                "当需要查询真实电影数据时，请使用提供的工具。"
+                "需要真实电影数据时必须使用工具。"
                 "不要编造数据库中不存在的信息。"
+                "如果工具返回 success=false，"
+                "请根据 error 字段向用户说明情况，"
+                "不要假装查询成功。"
             ),
         },
         {
@@ -156,7 +157,7 @@ def run_movie_agent(
         response = client.chat.completions.create(
             model="deepseek-flash",
             messages=messages,
-            tools=tools,
+            tools=tool_schemas,
         )
 
         message = response.choices[0].message
@@ -189,10 +190,3 @@ def run_movie_agent(
     )
 
 
-answer = run_movie_agent(
-    "帮我找1994年评分9分以上的剧情电影"
-)
-
-print()
-print("最终回答：")
-print(answer)
