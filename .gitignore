@@ -5,7 +5,7 @@ __pycache__/
 # Python 虚拟环境
 .venv/
 venv/
-
+.venv
 # VSCode
 .vscode/
 

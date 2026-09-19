@@ -1,5 +1,5 @@
 from unittest import result
-
+from movie_agent import run_movie_agent
 from fastapi import FastAPI, HTTPException,Query,status
 from schemas import (
     MovieCreate,
@@ -174,3 +174,23 @@ def ai_recommend(request: AIRecommendRequest):
         )
 
 
+@app.post("/ai/chat")
+def ai_chat(request: AIRecommendRequest):
+    try:
+        answer = run_movie_agent(
+            request.prompt
+        )
+
+        return {
+            "answer": answer
+        }
+
+    except Exception as error:
+        print(
+            f"Agent运行失败：{error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="AI Agent服务暂时不可用",
+        )

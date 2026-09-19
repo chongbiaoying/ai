@@ -40,7 +40,7 @@ def recommend_movie(prompt: str) -> MovieRecommendation:
     ]
 
     response = client.chat.completions.create(
-        model="deepseek-v4-flash",
+        model="deepseek-v4.1-flash",
         messages=messages,
         response_format={
             "type": "json_object"
