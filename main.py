@@ -1,15 +1,17 @@
-from unittest import result
 from movie_agent import run_movie_agent
-from fastapi import FastAPI, HTTPException,Query,status
+from fastapi import FastAPI, HTTPException, Query, status
 from schemas import (
     MovieCreate,
     MovieResponse,
     MoviePageResponse,
     MovieUpdate,
     AIRecommendRequest,
-    MovieRecommendation
+    MovieRecommendation,
+    AIChatRequest,
+    AIChatResponse,
+    UserMemoryUpdate,
+    UserMemoryResponse,
 )
-
 from database import (
     init_database,
     get_movie_by_id,
@@ -20,7 +22,9 @@ from database import (
     partial_update_movie,
     delete_movie,
     search_movies_db,
-    filter_movies_db
+    filter_movies_db,
+    update_user_memory,
+    get_user_memory,
 )
 from ai_service import recommend_movie
 app = FastAPI()
@@ -174,15 +178,21 @@ def ai_recommend(request: AIRecommendRequest):
         )
 
 
-@app.post("/ai/chat")
-def ai_chat(request: AIRecommendRequest):
+@app.post(
+    "/ai/chat",
+    response_model=AIChatResponse,
+)
+def ai_chat(request: AIChatRequest):
     try:
         answer = run_movie_agent(
-            request.prompt
+            user_input=request.message,
+            session_id=request.session_id,
+            user_id=request.user_id
         )
 
         return {
-            "answer": answer
+            "session_id": request.session_id,
+            "answer": answer,
         }
 
     except Exception as error:
@@ -194,3 +204,36 @@ def ai_chat(request: AIRecommendRequest):
             status_code=500,
             detail="AI Agent服务暂时不可用",
         )
+
+
+@app.put(
+    "/ai/memory/{user_id}",
+    response_model=UserMemoryResponse,
+)
+def update_memory(
+    user_id: str,
+    request: UserMemoryUpdate,
+):
+    memory = update_user_memory(
+        user_id=user_id,
+        favorite_type=request.favorite_type,
+        preferred_min_score=request.preferred_min_score,
+    )
+
+    return memory
+
+
+@app.get(
+    "/ai/memory/{user_id}",
+    response_model=UserMemoryResponse,
+)
+def get_memory(user_id: str):
+    memory = get_user_memory(user_id)
+
+    if memory is None:
+        raise HTTPException(
+            status_code=404,
+            detail="没有找到该用户的长期记忆",
+        )
+
+    return memory

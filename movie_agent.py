@@ -8,6 +8,8 @@ from database import (
     get_movie_by_id,
     search_movies_db,
     filter_movies_db,
+    get_user_memory,
+    update_user_memory,
 )
 
 
@@ -71,6 +73,43 @@ tool_registry = {
             "required": [],
         },
     },
+    "update_user_memory": {
+        "function": update_user_memory,
+
+        "description": (
+            "保存或更新用户的长期电影偏好。"
+            "只有当用户明确表达长期、稳定的偏好时才使用，"
+            "例如‘我喜欢科幻片’、"
+            "‘以后优先给我推荐8.5分以上的电影’。"
+            "不要因为用户临时查询某种电影就修改长期记忆。"
+        ),
+
+        "parameters": {
+            "type": "object",
+
+            "properties": {
+                "favorite_type": {
+                    "type": "string",
+                    "description": (
+                        "用户长期偏好的电影类型，"
+                        "例如科幻、剧情、喜剧"
+                    ),
+                },
+
+                "preferred_min_score": {
+                    "type": "number",
+                    "description": (
+                        "用户长期偏好的最低电影评分，"
+                        "范围0到10"
+                    ),
+                },
+            },
+
+            "required": [],
+        },
+
+        "inject_user_id": True,
+    },
 }
 
 tool_schemas = []
@@ -88,7 +127,118 @@ for tool_name, tool_info in tool_registry.items():
 
 
 
-def execute_tool(tool_call):
+short_term_memory_store = {}
+
+
+def build_long_term_memory_message(
+    user_id: str
+):
+    memory = get_user_memory(user_id)
+
+    if memory is None:
+        return None
+
+    parts = []
+
+    favorite_type = memory.get(
+        "favorite_type"
+    )
+
+    preferred_min_score = memory.get(
+        "preferred_min_score"
+    )
+
+    if favorite_type:
+        parts.append(
+            f"用户长期偏好的电影类型是：{favorite_type}"
+        )
+
+    if preferred_min_score is not None:
+        parts.append(
+            f"用户通常偏好评分不低于 {preferred_min_score} 的电影"
+        )
+
+    if not parts:
+        return None
+
+    return {
+        "role": "system",
+        "content": (
+            "用户长期记忆："
+            + "；".join(parts)
+        ),
+    }
+
+def build_memory_message(
+    session_id: str
+):
+    memory = get_short_term_memory(
+        session_id
+    )
+
+    current_movie = memory.get(
+        "current_movie"
+    )
+
+    if current_movie is None:
+        return None
+
+    return {
+        "role": "system",
+        "content": (
+            "当前会话的短期记忆："
+            f"最近正在讨论的电影是《{current_movie}》。"
+        ),
+    }
+
+def update_short_term_memory(
+    session_id: str,
+    tool_result: dict,
+):
+    if not tool_result.get("success"):
+        return
+
+    data = tool_result.get("data")
+
+    memory = get_short_term_memory(
+        session_id
+    )
+
+    if isinstance(data, dict):
+        movie_name = data.get("name")
+
+        if movie_name:
+            memory["current_movie"] = movie_name
+
+    elif isinstance(data, list):
+        if len(data) == 1:
+            movie_name = data[0].get("name")
+
+            if movie_name:
+                memory["current_movie"] = movie_name
+
+def get_short_term_memory(
+    session_id: str
+):
+    if session_id not in short_term_memory_store:
+        short_term_memory_store[session_id] = {
+            "current_movie": None
+        }
+
+    return short_term_memory_store[session_id]
+
+def get_session_messages(session_id: str):
+    if session_id not in conversation_store:
+        conversation_store[session_id] = [
+            SYSTEM_MESSAGE.copy()
+        ]
+
+    return conversation_store[session_id]
+
+def execute_tool(
+    tool_call,
+    user_id: str,
+):
     tool_name = tool_call.function.name
 
     try:
@@ -102,17 +252,23 @@ def execute_tool(tool_call):
         }
 
     tool_info = tool_registry.get(tool_name)
-    tool_function = tool_info["function"]
+
     if tool_info is None:
         return {
             "success": False,
             "error": f"未知工具：{tool_name}",
         }
 
+    tool_function = tool_info["function"]
+
+    if tool_info.get("inject_user_id"):
+        arguments["user_id"] = user_id
+
     try:
         tool_result = tool_function(
             **arguments
         )
+
     except Exception as error:
         return {
             "success": False,
@@ -129,50 +285,113 @@ def execute_tool(tool_call):
         "success": True,
         "data": tool_result,
     }
+
+
+SYSTEM_MESSAGE = {
+    "role": "system",
+    "content": (
+        "你是一个电影助手。"
+
+        "需要真实电影数据时必须使用工具，"
+        "不要编造数据库中不存在的信息。"
+
+        "如果工具返回 success=false，"
+        "请根据 error 字段向用户说明情况，"
+        "不要假装查询成功。"
+
+        "当用户明确表达长期、稳定的电影偏好时，"
+        "例如‘我喜欢科幻片’、"
+        "‘以后优先推荐剧情片’、"
+        "‘我通常只看8分以上的电影’，"
+        "可以调用 update_user_memory 保存长期记忆。"
+
+        "如果用户只是临时查询某种电影，"
+        "不要把它当作长期偏好保存。"
+    ),
+}
+
+conversation_store = {}
+
 def run_movie_agent(
     user_input: str,
+    session_id: str,
+    user_id: str,
     max_steps: int = 5,
 ) -> str:
 
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "你是一个电影助手。"
-                "需要真实电影数据时必须使用工具。"
-                "不要编造数据库中不存在的信息。"
-                "如果工具返回 success=false，"
-                "请根据 error 字段向用户说明情况，"
-                "不要假装查询成功。"
-            ),
-        },
+    messages = get_session_messages(
+        session_id
+    )
+
+    messages.append(
         {
             "role": "user",
             "content": user_input,
-        },
-    ]
+        }
+    )
 
     for step in range(max_steps):
 
+        context_messages = messages.copy()
+
+        long_term_memory_message = (
+            build_long_term_memory_message(
+                user_id
+            )
+        )
+
+        short_term_memory_message = (
+            build_memory_message(
+                session_id
+            )
+        )
+
+        insert_index = 1
+
+        if long_term_memory_message is not None:
+            context_messages.insert(
+                insert_index,
+                long_term_memory_message,
+            )
+            insert_index += 1
+
+        if short_term_memory_message is not None:
+            context_messages.insert(
+                insert_index,
+                short_term_memory_message,
+            )
+
         response = client.chat.completions.create(
             model="deepseek-flash",
-            messages=messages,
+            messages=context_messages,
             tools=tool_schemas,
         )
 
         message = response.choices[0].message
 
         if not message.tool_calls:
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": message.content,
+                }
+            )
+
             return message.content
 
         messages.append(message)
 
         for tool_call in message.tool_calls:
-            print(
-                f"第 {step + 1} 轮"
+
+            tool_result = execute_tool(
+                tool_call,
+                user_id=user_id,
             )
 
-            tool_result = execute_tool(tool_call)
+            update_short_term_memory(
+                session_id=session_id,
+                tool_result=tool_result,
+            )
 
             messages.append(
                 {
@@ -188,5 +407,4 @@ def run_movie_agent(
     raise RuntimeError(
         f"Agent执行超过最大轮数：{max_steps}"
     )
-
 

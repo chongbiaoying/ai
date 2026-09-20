@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+
 from pydantic import BaseModel, Field
 
 
@@ -26,6 +26,7 @@ class MovieRecommendation(BaseModel):
         min_length=1,
         description="推荐理由",
     )
+
 
 class MovieCreate(BaseModel):
     name: str = Field(
@@ -94,3 +95,48 @@ class MovieUpdate(BaseModel):
         max_length=20,
         description="电影类型",
     )
+
+
+class AIChatRequest(BaseModel):
+    user_id: str = Field(
+        min_length=1,
+        max_length=100,
+        description="用户ID",
+    )
+
+    session_id: str = Field(
+        min_length=1,
+        max_length=100000,
+        description="当前对话的会话ID",
+    )
+
+    message: str = Field(
+        min_length=1,
+        max_length=10000000,
+        description="发送给电影 Agent 的消息",
+    )
+
+
+class AIChatResponse(BaseModel):
+    session_id: str
+    answer: str
+
+class UserMemoryUpdate(BaseModel):
+    favorite_type: str | None = Field(
+        default=None,
+        max_length=50,
+    )
+
+    preferred_min_score: float | None = Field(
+        default=None,
+        ge=0,
+        le=10,
+    )
+
+
+class UserMemoryResponse(BaseModel):
+    user_id: str
+    favorite_type: str | None
+    preferred_min_score: float | None
+
+

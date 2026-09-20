@@ -25,6 +25,16 @@ def init_database():
             """
         )
 
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_memory (
+                user_id TEXT PRIMARY KEY,
+                favorite_type TEXT,
+                preferred_min_score REAL
+            )
+            """
+        )
+
         connection.commit()
 
     except sqlite3.Error as error:
@@ -471,6 +481,105 @@ def show_tables():
 
     except sqlite3.Error as error:
         print(f"查看数据表失败：{error}")
+        raise
+
+    finally:
+        connection.close()
+
+
+def get_user_memory(user_id: str):
+    connection = sqlite3.connect(DATABASE_FILE)
+    connection.row_factory = sqlite3.Row
+
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                user_id,
+                favorite_type,
+                preferred_min_score
+            FROM user_memory
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        )
+
+        row = cursor.fetchone()
+
+        if row is None:
+            return None
+
+        return dict(row)
+
+    except sqlite3.Error as error:
+        print(f"读取用户长期记忆失败：{error}")
+        raise
+
+    finally:
+        connection.close()
+
+
+
+def update_user_memory(
+    user_id: str,
+    favorite_type: str | None = None,
+    preferred_min_score: float | None = None,
+):
+    old_memory = get_user_memory(user_id)
+
+    if old_memory is None:
+        old_memory = {
+            "favorite_type": None,
+            "preferred_min_score": None,
+        }
+
+    new_favorite_type = (
+        favorite_type
+        if favorite_type is not None
+        else old_memory["favorite_type"]
+    )
+
+    new_preferred_min_score = (
+        preferred_min_score
+        if preferred_min_score is not None
+        else old_memory["preferred_min_score"]
+    )
+
+    connection = sqlite3.connect(DATABASE_FILE)
+
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO user_memory (
+                user_id,
+                favorite_type,
+                preferred_min_score
+            )
+            VALUES (?, ?, ?)
+
+            ON CONFLICT(user_id)
+            DO UPDATE SET
+                favorite_type = excluded.favorite_type,
+                preferred_min_score = excluded.preferred_min_score
+            """,
+            (
+                user_id,
+                new_favorite_type,
+                new_preferred_min_score,
+            ),
+        )
+
+        connection.commit()
+
+        return get_user_memory(user_id)
+
+    except sqlite3.Error as error:
+        connection.rollback()
+        print(f"更新用户长期记忆失败：{error}")
         raise
 
     finally:
