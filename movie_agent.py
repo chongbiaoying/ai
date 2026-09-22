@@ -1,5 +1,6 @@
 import os
 import json
+from rag_chroma import retrieve
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -19,6 +20,18 @@ client = OpenAI(
     api_key=os.getenv("DEEPSEEK_API_KEY"),
     base_url=os.getenv("DEEPSEEK_BASE_URL"),
 )
+
+
+def search_knowledge_base(
+    query: str,
+):
+    results = retrieve(
+        query=query,
+        top_k=3,
+    )
+
+    return results
+
 
 tool_registry = {
     "get_movie_by_id": {
@@ -73,6 +86,7 @@ tool_registry = {
             "required": [],
         },
     },
+
     "update_user_memory": {
         "function": update_user_memory,
 
@@ -110,6 +124,39 @@ tool_registry = {
 
         "inject_user_id": True,
     },
+
+    "search_knowledge_base": {
+
+        "function":
+            search_knowledge_base,
+
+        "description": (
+            "从项目知识库中检索与问题相关的资料。"
+            "适合回答项目设计、RAG、Agent、"
+            "Tool Calling、Memory、Context 等"
+            "知识和文档类问题。"
+            "如果用户是在查询电影名称、评分、年份、"
+            "电影类型等真实电影数据，"
+            "不要使用这个工具，应使用电影数据库工具。"
+        ),
+
+        "parameters": {
+            "type": "object",
+
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "需要在知识库中检索的问题"
+                    ),
+                }
+            },
+
+            "required": [
+                "query"
+            ],
+        },
+    },
 }
 
 tool_schemas = []
@@ -128,6 +175,8 @@ for tool_name, tool_info in tool_registry.items():
 
 
 short_term_memory_store = {}
+
+
 
 
 def build_long_term_memory_message(
@@ -307,6 +356,15 @@ SYSTEM_MESSAGE = {
 
         "如果用户只是临时查询某种电影，"
         "不要把它当作长期偏好保存。"
+        
+        "如果用户询问项目设计、Agent、RAG、"
+        "Tool Calling、Memory、Context 等"
+        "知识库中的技术资料，"
+        "可以使用 search_knowledge_base 工具检索资料。"
+        
+        "查询电影评分、年份、类型、电影名称等真实电影数据时，"
+        "应优先使用电影数据库工具，"
+        "不要使用知识库工具代替电影数据库查询。"
     ),
 }
 

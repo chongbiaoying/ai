@@ -1,0 +1,9 @@
+RAG 是 Retrieval-Augmented Generation，也就是检索增强生成。
+
+RAG 的核心思想是在调用大模型之前，先从外部知识库中寻找与用户问题有关的资料，再把这些资料放入模型的 Context。
+
+Chunk 是从原始文档中切出来的小块文本。把长文档拆成 Chunk，可以减少无关信息，并让检索器更加精确地找到用户需要的内容。
+
+Embedding 会把文本转换成一个由许多数字组成的 Vector。语义相似的文本通常会对应比较接近的 Vector。
+
+Retriever 的职责是根据用户问题，从知识库中找到相关 Chunk。Top-K 表示返回相关度最高的 K 个 Chunk。
