@@ -1,6 +1,6 @@
 import os
 import json
-from rag_chroma import retrieve
+from rag_service import retrieve
 
 from dotenv import load_dotenv
 from openai import OpenAI

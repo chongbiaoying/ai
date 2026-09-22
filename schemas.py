@@ -2,32 +2,6 @@
 from pydantic import BaseModel, Field
 
 
-class AIRecommendRequest(BaseModel):
-    prompt: str = Field(
-        min_length=1,
-        max_length=500,
-        description="用户的电影推荐需求",
-    )
-
-
-class MovieRecommendation(BaseModel):
-    movie_name: str = Field(
-        min_length=1,
-        description="推荐电影名称",
-    )
-
-    score: float = Field(
-        ge=0,
-        le=10,
-        description="电影评分",
-    )
-
-    reason: str = Field(
-        min_length=1,
-        description="推荐理由",
-    )
-
-
 class MovieCreate(BaseModel):
     name: str = Field(
         min_length=1,

@@ -1,14 +1,9 @@
-import sys
 from pathlib import Path
-import os
 import chromadb
-from openai import OpenAI
-from dotenv import load_dotenv
 from sentence_transformers import (
     SentenceTransformer,
 )
 
-load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 
 KNOWLEDGE_DIR = (
@@ -29,10 +24,6 @@ embedding_model = SentenceTransformer(
 
 chroma_client = chromadb.PersistentClient(
     path=str(CHROMA_DIR)
-)
-client = OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY"),
-    base_url=os.getenv("DEEPSEEK_BASE_URL"),
 )
 
 collection = (
@@ -254,180 +245,3 @@ def retrieve(
         )
 
     return results
-
-
-def query_loop():
-
-    print(
-        f"当前知识库共有 "
-        f"{collection.count()} 个 Chunk"
-    )
-
-    while True:
-
-        query = input(
-            "\n请输入问题"
-            "（输入 exit 退出）："
-        )
-
-        if query.lower() == "exit":
-            break
-
-        results = retrieve(
-            query=query,
-            top_k=3,
-        )
-
-        print(
-            "\n检索结果：\n"
-        )
-
-        for result in results:
-
-            print(
-                f"来源："
-                f"{result['source']}"
-            )
-
-            print(
-                f"Chunk："
-                f"{result['chunk_id']}"
-            )
-
-            print(
-                f"Distance："
-                f"{result['distance']:.4f}"
-            )
-
-            print(
-                result["text"]
-            )
-
-            print(
-                "-" * 50
-            )
-def build_rag_context(
-    results: list[dict]
-):
-    context_parts = []
-
-    for index, result in enumerate(
-        results,
-        start=1,
-    ):
-        context_parts.append(
-            f"""
-[资料{index}]
-来源：{result['source']}
-内容：{result['text']}
-""".strip()
-        )
-
-    rag_context = "\n\n".join(
-        context_parts
-    )
-
-    return rag_context
-
-
-def answer_with_rag(
-    query: str
-):
-    results = retrieve(
-        query=query,
-        top_k=3,
-    )
-
-    rag_context = build_rag_context(
-        results
-    )
-
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "你是一个知识库问答助手。"
-                "请优先根据提供的知识库资料回答问题。"
-                "如果资料不足，请明确说明资料不足，"
-                "不要编造。"
-            ),
-        },
-
-        {
-            "role": "system",
-            "content": (
-                "以下是知识库检索到的资料：\n\n"
-                + rag_context
-            ),
-        },
-
-        {
-            "role": "user",
-            "content": query,
-        },
-    ]
-
-    response = client.chat.completions.create(
-        model="deepseek-flash",
-        messages=messages,
-    )
-
-    answer = (
-        response
-        .choices[0]
-        .message
-        .content
-    )
-
-    sources = get_sources(
-        results
-    )
-
-    return {
-        "answer": answer,
-        "sources": sources,
-    }
-
-
-def get_sources(
-    results: list[dict]
-):
-    sources = []
-
-    for result in results:
-        source = result["source"]
-
-        if source not in sources:
-            sources.append(source)
-
-    return sources
-
-
-
-
-if __name__ == "__main__":
-
-    query = input(
-        "请输入问题："
-    )
-
-    result = answer_with_rag(
-        query
-    )
-
-    print(
-        "\n回答："
-    )
-
-    print(
-        result["answer"]
-    )
-
-    print(
-        "\n来源："
-    )
-
-    for source in result["sources"]:
-        print(
-            f"- {source}"
-        )

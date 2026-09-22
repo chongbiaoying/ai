@@ -22,3 +22,6 @@ Thumbs.db
 
 .idea/
 *.log
+
+# Chroma Vector Database
+chroma_db/

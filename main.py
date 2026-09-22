@@ -5,8 +5,6 @@ from schemas import (
     MovieResponse,
     MoviePageResponse,
     MovieUpdate,
-    AIRecommendRequest,
-    MovieRecommendation,
     AIChatRequest,
     AIChatResponse,
     UserMemoryUpdate,
@@ -26,7 +24,6 @@ from database import (
     update_user_memory,
     get_user_memory,
 )
-from ai_service import recommend_movie
 app = FastAPI()
 init_database()
 
@@ -156,27 +153,6 @@ def delete_movie_api(movie_id:int):
         "message":f"已删除ID为{movie_id}的电影",
         "deleted_movie":movie,
     }
-
-@app.post(
-    "/ai/recommend",
-    response_model=MovieRecommendation,
-)
-def ai_recommend(request: AIRecommendRequest):
-    try:
-        result = recommend_movie(request.prompt)
-
-        return result
-
-    except Exception as error:
-        print(
-            f"调用AI失败：{error}"
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail="AI服务暂时不可用",
-        )
-
 
 @app.post(
     "/ai/chat",
