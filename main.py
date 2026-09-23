@@ -1,5 +1,6 @@
 from movie_agent import run_movie_agent
 from fastapi import FastAPI, HTTPException, Query, status
+from fastapi.middleware.cors import CORSMiddleware
 from schemas import (
     MovieCreate,
     MovieResponse,
@@ -25,6 +26,18 @@ from database import (
     get_user_memory,
 )
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],          # 开发阶段先允许所有，正式环境改成前端地址
+    allow_credentials=False,      # 如果不用 cookie，就设 False；用 cookie 则不能和 "*" 共用
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+
+
 init_database()
 
 @app.get("/")

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>电影资料查询系统</title>
+
+<script>
+(function () {
+  const THEME_KEY = 'movie_theme';
+  const saved = localStorage.getItem(THEME_KEY) || 'auto';
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const effective = saved === 'auto' ? (systemDark ? 'dark' : 'light') : saved;
+  document.documentElement.setAttribute('data-theme', effective);
+  document.documentElement.setAttribute('data-theme-mode', saved);
+})();
+</script>
+
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ========== 左侧电影区 ========== -->
+<div class="main">
+  <div class="header">
+    <h1>🎬 电影资料查询系统</h1>
+    <div class="header-actions">
+      <div class="count" id="totalCount">加载中…</div>
+      <button class="icon-btn" id="prefBtn" title="偏好设置">⚙️</button>
+      <button class="icon-btn" id="themeToggle" title="切换主题">🌓</button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-wrapper">
+      <input id="searchInput" placeholder="搜索电影名…" autocomplete="off" />
+      <div class="search-history" id="searchHistory" hidden>
+        <div class="search-history-header">
+          <span>最近搜索</span>
+          <button class="search-history-clear" id="searchHistoryClear">清空</button>
+        </div>
+        <ul class="search-history-list" id="searchHistoryList"></ul>
+      </div>
+    </div>
+
+    <input id="filterScore" type="number" placeholder="最低评分" min="0" max="10" step="0.1" />
+    <input id="filterYear" type="number" placeholder="年份" min="1888" />
+    <button class="btn btn-primary" onclick="doSearch()">搜索 / 过滤</button>
+    <button class="btn btn-ghost" onclick="resetSearch()">重置</button>
+    <button class="btn btn-success" onclick="openCreate()">+ 新增电影</button>
+
+    <div class="sort-control">
+      <select id="sortField" title="排序字段">
+        <option value="default">默认排序</option>
+        <option value="score">按评分</option>
+        <option value="year">按年份</option>
+        <option value="name">按名称</option>
+      </select>
+      <button class="sort-order-btn" id="sortOrderBtn" title="切换升序/降序">↓</button>
+    </div>
+  </div>
+
+  <div id="movieGrid" class="grid"></div>
+  <div id="emptyHint" class="empty" style="display:none">
+    <div class="emoji">🎞️</div>
+    <div>没有找到电影</div>
+  </div>
+
+  <div class="pager">
+    <button id="prevBtn" onclick="changePage(-1)">← 上一页</button>
+    <span id="pageInfo">—</span>
+    <button id="nextBtn" onclick="changePage(1)">下一页 →</button>
+  </div>
+</div>
+
+<!-- ========== 右侧 AI 聊天区 ========== -->
+<div class="chat">
+  <div class="chat-header">
+    <div class="dot"></div>
+    🤖 AI 电影助手
+  </div>
+
+  <div id="chatMessages" class="chat-messages">
+    <div class="msg ai">你好！可以问我推荐电影、查询资料等问题。</div>
+  </div>
+
+  <div class="quick-prompts" id="quickPrompts">
+    <button class="quick-prompt-btn" data-prompt="推荐几部高分科幻电影">推荐高分科幻</button>
+    <button class="quick-prompt-btn" data-prompt="有哪些 9 分以上的经典电影？">9 分以上的经典</button>
+    <button class="quick-prompt-btn" data-prompt="我喜欢的类型是科幻，评分至少 8 分">我喜欢的类型</button>
+    <button class="quick-prompt-btn" data-prompt="帮我挑一部适合周末看的电影">周末看什么</button>
+  </div>
+
+  <div class="chat-input">
+    <input id="chatInput" placeholder="输入你的问题…"
+           onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendChat()}" />
+    <button onclick="sendChat()">发送</button>
+  </div>
+</div>
+
+<!-- ========== 偏好设置弹窗 ========== -->
+<div id="prefModal" class="modal" onclick="if(event.target===this)closePref()">
+  <div class="pref-box">
+    <div class="pref-header">
+      <h2>⚙️ 偏好设置</h2>
+      <button class="pref-close" onclick="closePref()" title="关闭">×</button>
+    </div>
+    <p class="pref-hint">告诉 AI 助手你的口味，推荐会更贴合你。</p>
+
+    <label class="pref-field">
+      <span class="pref-label">用户 ID</span>
+      <input id="prefUserId" placeholder="如 user_001" />
+    </label>
+
+    <label class="pref-field">
+      <span class="pref-label">喜欢的类型</span>
+      <input id="prefFavoriteType" placeholder="如 科幻 / 悬疑 / 剧情" />
+    </label>
+
+    <label class="pref-field">
+      <span class="pref-label">最低评分</span>
+      <div class="pref-score-row">
+        <input id="prefMinScore" type="range" min="0" max="10" step="0.1" />
+        <span class="pref-score-value" id="prefMinScoreValue">7.0</span>
+      </div>
+    </label>
+
+    <div class="pref-actions">
+      <button class="btn btn-cancel" onclick="closePref()">取消</button>
+      <button class="btn btn-primary" id="prefSaveBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 新增 / 编辑弹窗 ========== -->
+<div id="modal" class="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box" onkeydown="if(event.key==='Escape')closeModal(); if(event.key==='Enter'){event.preventDefault();submitModal();}">
+    <h2 id="modalTitle">新增电影</h2>
+    <input id="mName" placeholder="电影名" />
+    <input id="mScore" type="number" placeholder="评分 (0-10)" min="0" max="10" step="0.1" />
+    <input id="mYear" type="number" placeholder="年份" min="1888" />
+    <input id="mType" placeholder="类型（如：剧情 / 科幻）" />
+    <div class="row">
+      <button class="btn-cancel" onclick="closeModal()">取消</button>
+      <button class="btn-save" onclick="submitModal()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 电影详情弹窗 ========== -->
+<div id="detailModal" class="modal" onclick="if(event.target===this)closeDetail()">
+  <div class="detail-box">
+    <div class="detail-poster" id="detailPoster">🎬</div>
+    <h2 id="detailName">—</h2>
+    <div class="detail-stats">
+      <div class="stat">
+        <div class="stat-label">评分</div>
+        <div class="stat-value" id="detailScore">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">年份</div>
+        <div class="stat-value" id="detailYear">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">类型</div>
+        <div class="stat-value" id="detailType">—</div>
+      </div>
+    </div>
+    <div class="detail-actions">
+      <button class="btn btn-ghost" onclick="closeDetail()">关闭</button>
+      <button class="btn btn-primary" id="detailEditBtn">编辑</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 确认弹窗 ========== -->
+<div id="confirmModal" class="modal">
+  <div class="confirm-box">
+    <div class="icon" id="confirmIcon">⚠️</div>
+    <h3 id="confirmTitle">确认操作</h3>
+    <p id="confirmMsg">确定要执行这个操作吗？</p>
+    <div class="row">
+      <button class="btn-cancel" id="confirmCancel">取消</button>
+      <button class="btn-danger" id="confirmOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toastContainer" class="toast-container"></div>
+
+<script src="app.js" defer></script>
+</body>
+</html>
