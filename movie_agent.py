@@ -1,7 +1,9 @@
 import os
 import json
 from rag_service import retrieve
+from logging_config import get_logger
 
+logger = get_logger(__name__)
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -285,56 +287,74 @@ def get_session_messages(session_id: str):
     return conversation_store[session_id]
 
 def execute_tool(
-    tool_call,
+    tool_name: str,
+    arguments_json: str,
     user_id: str,
 ):
-    tool_name = tool_call.function.name
 
     try:
         arguments = json.loads(
-            tool_call.function.arguments
+            arguments_json or "{}"
         )
+
     except json.JSONDecodeError as error:
+
         return {
             "success": False,
-            "error": f"工具参数解析失败：{error}",
+            "error":
+                f"工具参数解析失败：{error}",
         }
 
-    tool_info = tool_registry.get(tool_name)
+    tool_info = tool_registry.get(
+        tool_name
+    )
 
     if tool_info is None:
+
         return {
             "success": False,
-            "error": f"未知工具：{tool_name}",
+            "error":
+                f"未知工具：{tool_name}",
         }
 
-    tool_function = tool_info["function"]
+    tool_function = tool_info[
+        "function"
+    ]
 
-    if tool_info.get("inject_user_id"):
+    if tool_info.get(
+        "inject_user_id"
+    ):
         arguments["user_id"] = user_id
 
     try:
+
         tool_result = tool_function(
             **arguments
         )
 
     except Exception as error:
+
         return {
             "success": False,
-            "error": f"工具执行失败：{error}",
+            "error":
+                f"工具执行失败：{error}",
         }
 
-    if tool_result is None or tool_result == []:
+    if (
+        tool_result is None
+        or tool_result == []
+    ):
+
         return {
             "success": False,
-            "error": "没有找到符合条件的数据",
+            "error":
+                "没有找到符合条件的数据",
         }
 
     return {
         "success": True,
         "data": tool_result,
     }
-
 
 SYSTEM_MESSAGE = {
     "role": "system",

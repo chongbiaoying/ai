@@ -20,11 +20,15 @@ const SESSION_ID = "session_" + Date.now();
 // ============================================================
 const THEME_KEY = 'movie_theme';
 const themeToggle = document.getElementById('themeToggle');
-const themeIcons = { auto: '🌓', light: '☀️', dark: '🌙' };
+const themeIcons = {
+  auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8.2"/><path d="M12 3.8a8.2 8.2 0 0 1 0 16.4Z" fill="currentColor" stroke="none"/></svg>',
+  light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.6 5.6l1.5 1.5M16.9 16.9l1.5 1.5M18.4 5.6l-1.5 1.5M7.1 16.9l-1.5 1.5"/></svg>',
+  dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.9A8.7 8.7 0 0 1 9.1 3.5a8.7 8.7 0 1 0 11.4 11.4Z"/></svg>',
+};
 const themeLabels = { auto: '跟随系统', light: '浅色', dark: '深色' };
 
 function getThemeMode() {
-  return localStorage.getItem(THEME_KEY) || 'auto';
+  return localStorage.getItem(THEME_KEY) || 'light';
 }
 
 function applyTheme(mode) {
@@ -32,7 +36,7 @@ function applyTheme(mode) {
   const effective = mode === 'auto' ? (systemDark ? 'dark' : 'light') : mode;
   document.documentElement.setAttribute('data-theme', effective);
   document.documentElement.setAttribute('data-theme-mode', mode);
-  themeToggle.textContent = themeIcons[mode];
+  themeToggle.innerHTML = themeIcons[mode];
   themeToggle.title = `当前：${themeLabels[mode]}（点击切换）`;
 }
 
@@ -267,6 +271,8 @@ searchInputEl.addEventListener('keydown', (e) => {
   }
 
   if (e.key === 'Enter') {
+    // 输入法候选框的回车不算确认搜索
+    if (e.isComposing || e.keyCode === 229) return;
     hideSearchHistory();
     doSearch();
   } else if (e.key === 'Escape') {
@@ -398,7 +404,7 @@ let pageSize = 6;
 let searchMode = null;
 let editingId = null;
 let detailMovie = null;
-let isLoading = false;
+let moviesReqId = 0;
 let currentSearchKeyword = '';   // 当前搜索关键词，用于高亮
 
 const lastData = { items: [], paged: false, total: 0 };
@@ -451,19 +457,20 @@ function confirmDialog({ title = '确认操作', message = '', confirmText = '�
 // 骨架屏
 // ============================================================
 function showSkeleton() {
-  const grid = document.getElementById('movieGrid');
-  grid.innerHTML = '';
+  const list = document.getElementById('movieList');
+  list.innerHTML = '';
   document.getElementById('emptyHint').style.display = 'none';
   for (let i = 0; i < pageSize; i++) {
     const s = document.createElement('div');
-    s.className = 'skeleton-card';
+    s.className = 'skeleton-row';
     s.innerHTML = `
-      <div class="skeleton-line w-70"></div>
-      <div class="skeleton-line w-40"></div>
-      <div class="skeleton-line w-90"></div>
-      <div class="skeleton-line w-40"></div>
+      <div class="skeleton-stack">
+        <div class="skeleton-line w-60"></div>
+        <div class="skeleton-line w-40"></div>
+      </div>
+      <div class="skeleton-line w-20"></div>
     `;
-    grid.appendChild(s);
+    list.appendChild(s);
   }
 }
 
@@ -471,8 +478,8 @@ function showSkeleton() {
 // 加载电影列表
 // ============================================================
 async function loadMovies() {
-  if (isLoading) return;
-  isLoading = true;
+  // 每次请求带序号，只渲染最后一次的结果，避免连续操作时旧响应覆盖新数据
+  const reqId = ++moviesReqId;
   showSkeleton();
 
   try {
@@ -501,17 +508,18 @@ async function loadMovies() {
       total = data.total;
     }
 
+    if (reqId !== moviesReqId) return;
+
     lastData.items = items;
     lastData.paged = paged;
     lastData.total = total;
 
     renderMovies(items, paged, total);
   } catch (err) {
+    if (reqId !== moviesReqId) return;
     toast(err.message || '加载失败', 'error');
-    document.getElementById('movieGrid').innerHTML = '';
-    document.getElementById('emptyHint').style.display = 'block';
-  } finally {
-    isLoading = false;
+    document.getElementById('movieList').innerHTML = '';
+    document.getElementById('emptyHint').style.display = 'flex';
   }
 }
 
@@ -557,15 +565,15 @@ function highlightKeyword(text, keyword) {
 }
 
 // ============================================================
-// 渲染电影卡片
+// 渲染电影列表
 // ============================================================
 function renderMovies(rawItems, paged, total) {
-  const grid = document.getElementById('movieGrid');
+  const list = document.getElementById('movieList');
   const hint = document.getElementById('emptyHint');
   const countEl = document.getElementById('totalCount');
 
   const items = applySort(rawItems);
-  grid.innerHTML = '';
+  list.innerHTML = '';
 
   if (!items || items.length === 0) {
     hint.style.display = 'flex';
@@ -580,25 +588,28 @@ function renderMovies(rawItems, paged, total) {
   // 只有搜索模式下才高亮
   const highlightKw = (searchMode === 'search') ? currentSearchKeyword : '';
 
-  items.forEach(m => {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `
-      <h3>${highlightKeyword(m.name, highlightKw)}</h3>
-      <div class="score">⭐ ${m.score}</div>
-      <div class="meta">
-        <span>📅 ${m.year}</span>
-        ${m.type ? `<span class="tag">${escapeHtml(m.type)}</span>` : ''}
+  items.forEach((m, i) => {
+    const row = document.createElement('article');
+    row.className = 'row';
+    row.style.animationDelay = `${Math.min(i * 35, 260)}ms`;
+    row.innerHTML = `
+      <div class="row-main">
+        <h3 class="row-title">${highlightKeyword(m.name, highlightKw)}</h3>
+        <div class="row-meta">
+          <span>${escapeHtml(m.year)}</span>
+          ${m.type ? `<span class="sep">·</span><span>${escapeHtml(m.type)}</span>` : ''}
+        </div>
       </div>
-      <div class="actions">
-        <button class="btn-edit">编辑</button>
-        <button class="btn-del">删除</button>
+      <div class="row-actions">
+        <button class="link-btn btn-edit">编辑</button>
+        <button class="link-btn btn-del">删除</button>
       </div>
+      <div class="row-score">${escapeHtml(m.score)}</div>
     `;
-    card.onclick = () => openDetail(m);
-    card.querySelector('.btn-edit').onclick = (e) => { e.stopPropagation(); openEdit(m); };
-    card.querySelector('.btn-del').onclick = (e) => { e.stopPropagation(); deleteMovie(m.id, m.name); };
-    grid.appendChild(card);
+    row.onclick = () => openDetail(m);
+    row.querySelector('.btn-edit').onclick = (e) => { e.stopPropagation(); openEdit(m); };
+    row.querySelector('.btn-del').onclick = (e) => { e.stopPropagation(); deleteMovie(m.id, m.name); };
+    list.appendChild(row);
   });
 
   if (paged) {
@@ -659,12 +670,12 @@ function resetSearch() {
   loadMovies();
 }
 
-document.getElementById('filterScore').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doSearch();
-});
-document.getElementById('filterYear').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doSearch();
-});
+function onFilterEnter(e) {
+  if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+  doSearch();
+}
+document.getElementById('filterScore').addEventListener('keydown', onFilterEnter);
+document.getElementById('filterYear').addEventListener('keydown', onFilterEnter);
 
 // ============================================================
 // 电影详情弹窗
@@ -675,9 +686,6 @@ function openDetail(movie) {
   document.getElementById('detailScore').textContent = movie.score != null ? `${movie.score} / 10` : '—';
   document.getElementById('detailYear').textContent = movie.year || '—';
   document.getElementById('detailType').textContent = movie.type || '未分类';
-
-  const poster = document.getElementById('detailPoster');
-  poster.textContent = pickPosterEmoji(movie.type);
 
   document.getElementById('detailModal').classList.add('active');
 }
@@ -693,23 +701,6 @@ document.getElementById('detailEditBtn').onclick = () => {
   closeDetail();
   openEdit(movie);
 };
-
-function pickPosterEmoji(type) {
-  if (!type) return '🎬';
-  const t = String(type);
-  if (t.includes('科幻')) return '🚀';
-  if (t.includes('爱情')) return '💕';
-  if (t.includes('恐怖') || t.includes('惊悚')) return '👻';
-  if (t.includes('喜剧')) return '😂';
-  if (t.includes('动作')) return '💥';
-  if (t.includes('动画')) return '🐭';
-  if (t.includes('纪录')) return '📽️';
-  if (t.includes('战争')) return '⚔️';
-  if (t.includes('悬疑') || t.includes('犯罪')) return '🔍';
-  if (t.includes('奇幻')) return '🧙';
-  if (t.includes('剧情')) return '🎭';
-  return '🎬';
-}
 
 // ============================================================
 // 新增 / 编辑
@@ -911,46 +902,262 @@ function renderMarkdown(text) {
 // ============================================================
 // AI 聊天
 // ============================================================
+const TOOL_LABELS = {
+  search_movies_db: '搜索电影库',
+  filter_movies_db: '筛选电影',
+  get_movie_by_id: '查询电影详情',
+  search_knowledge_base: '检索知识库',
+  update_user_memory: '更新你的偏好',
+};
+
 let isChatting = false;
+let currentAbortController = null;
+
+async function streamAIMessage(payload, onEvent, signal) {
+  const response = await fetch(`${API}/ai/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `AI 请求失败 (${response.status})`);
+  }
+  if (!response.body) throw new Error('浏览器不支持流式响应');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const handleLine = (line) => {
+    const text = line.trim();
+    if (!text) return;
+    try {
+      onEvent(JSON.parse(text));
+    } catch (_) {
+      // 忽略无法解析的行，避免整条流中断
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    // 最后一段可能还没传完整
+    buffer = lines.pop();
+    for (const line of lines) handleLine(line);
+  }
+
+  buffer += decoder.decode();
+  handleLine(buffer);
+}
+
+// 思考状态：全局唯一元素，永远只存在一个
+let chatStatusEl = null;
+
+function scrollChatToBottom() {
+  const box = document.getElementById('chatMessages');
+  box.scrollTop = box.scrollHeight;
+}
+
+function setChatStatus(text) {
+  const box = document.getElementById('chatMessages');
+
+  // 兜底清扫：任何残留的状态元素都清掉，保证全局只有一个
+  box.querySelectorAll('.chat-status').forEach(el => {
+    if (el === chatStatusEl) return;
+    clearTimeout(el.__leaveTimer);
+    el.remove();
+  });
+
+  if (!chatStatusEl) {
+    chatStatusEl = document.createElement('div');
+    chatStatusEl.className = 'chat-status';
+    chatStatusEl.innerHTML =
+      '<span class="status-dots"><i></i><i></i><i></i></span><span class="status-text"></span>';
+  }
+
+  chatStatusEl.classList.remove('leaving');
+  chatStatusEl.querySelector('.status-text').textContent = text || '正在思考…';
+  // 始终排在消息流末尾
+  box.appendChild(chatStatusEl);
+  scrollChatToBottom();
+}
+
+function clearChatStatus() {
+  const box = document.getElementById('chatMessages');
+  const targets = [];
+
+  if (chatStatusEl) {
+    targets.push(chatStatusEl);
+    chatStatusEl = null;
+  }
+  box.querySelectorAll('.chat-status').forEach(el => {
+    if (!targets.includes(el)) targets.push(el);
+  });
+
+  targets.forEach(el => {
+    el.classList.add('leaving');
+    el.__leaveTimer = setTimeout(() => el.remove(), 200);
+  });
+}
+
+function appendEmptyAssistantMessage() {
+  const box = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg ai';
+  box.appendChild(div);
+  scrollChatToBottom();
+  return div;
+}
+
+// 流式渲染按帧节流，避免每个 token 都重排一次 DOM
+let renderRafId = null;
+let pendingRender = null;
+
+function renderAssistantBody(el, text, streaming) {
+  let html = renderMarkdown(text);
+
+  if (streaming) {
+    const caret = '<span class="streaming-caret"></span>';
+    const closers = ['</p>', '</li>', '</h2>', '</h3>', '</h4>', '</blockquote>'];
+    let pos = -1;
+    let len = 0;
+    for (const tag of closers) {
+      const idx = html.lastIndexOf(tag);
+      if (idx > pos) {
+        pos = idx;
+        len = tag.length;
+      }
+    }
+    html = pos === -1
+      ? html + caret
+      : html.slice(0, pos) + caret + html.slice(pos + len);
+  }
+
+  el.innerHTML = html;
+}
+
+function scheduleAssistantRender(el, text, streaming) {
+  pendingRender = { el, text, streaming };
+  if (renderRafId) return;
+
+  renderRafId = requestAnimationFrame(() => {
+    renderRafId = null;
+    const job = pendingRender;
+    pendingRender = null;
+    if (!job) return;
+    renderAssistantBody(job.el, job.text, job.streaming);
+    scrollChatToBottom();
+  });
+}
+
+function setChatBusy(busy) {
+  isChatting = busy;
+
+  const sendBtn = document.getElementById('chatSendBtn');
+  sendBtn.disabled = busy;
+  sendBtn.textContent = busy ? '生成中' : '发送';
+
+  document.getElementById('chatStopBtn').hidden = !busy;
+  document.querySelectorAll('.quick-prompt-btn').forEach(btn => {
+    btn.disabled = busy;
+  });
+
+  if (!busy) document.getElementById('chatInput').focus();
+}
 
 async function sendChat() {
   if (isChatting) return;
+
   const input = document.getElementById('chatInput');
-  const text = input.value.trim();
-  if (!text) return;
+  const userMessage = input.value.trim();
+  if (!userMessage) return;
 
   input.value = '';
-  appendMsg(text, 'user');
-  appendTyping();
-  isChatting = true;
+  autoGrowChatInput();
+  setChatBusy(true);
+
+  appendMsg(userMessage, 'user');
+
+  let aiText = '';
+  let assistantEl = null;
+
+  const controller = new AbortController();
+  currentAbortController = controller;
+
+  const ensureAssistantEl = () => {
+    if (!assistantEl) {
+      clearChatStatus();
+      assistantEl = appendEmptyAssistantMessage();
+    }
+    return assistantEl;
+  };
+
+  setChatStatus('正在思考…');
 
   try {
-    const res = await fetch(`${API}/ai/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    await streamAIMessage(
+      {
         session_id: SESSION_ID,
         user_id: getUserId(),
-        message: text,
-      }),
-    });
-    removeTyping();
+        message: userMessage,
+      },
+      (event) => {
+        if (!event || typeof event !== 'object') return;
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      appendMsg('（AI 服务暂时不可用：' + (err.detail || res.status) + '）', 'ai');
-      return;
+        switch (event.type) {
+          case 'token':
+            if (typeof event.content === 'string' && event.content) {
+              aiText += event.content;
+              scheduleAssistantRender(ensureAssistantEl(), aiText, true);
+            }
+            break;
+          case 'status':
+            setChatStatus(event.message || '正在思考…');
+            break;
+          case 'tool_start':
+            setChatStatus(`正在${TOOL_LABELS[event.tool] || '调用工具'}…`);
+            break;
+          case 'tool_end':
+            setChatStatus('正在整理结果…');
+            break;
+          case 'done':
+            clearChatStatus();
+            break;
+        }
+      },
+      controller.signal
+    );
+
+    if (assistantEl) {
+      scheduleAssistantRender(assistantEl, aiText, false);
+    } else {
+      appendMsg('（AI 没有返回内容，请再试一次）', 'ai');
     }
-    const data = await res.json();
-    appendMsg(data.answer, 'ai');
   } catch (err) {
-    removeTyping();
-    appendMsg('（网络错误，请稍后再试）', 'ai');
+    if (err && err.name === 'AbortError') {
+      if (assistantEl) scheduleAssistantRender(assistantEl, aiText, false);
+      toast('已停止生成', 'info');
+    } else {
+      const msg = (err && err.message) || '网络错误，请稍后再试';
+      if (assistantEl) {
+        scheduleAssistantRender(assistantEl, `${aiText}\n\n> ⚠️ ${msg}`, false);
+      } else {
+        appendMsg(`（${msg}）`, 'ai');
+      }
+      toast(msg, 'error');
+    }
   } finally {
-    isChatting = false;
+    clearChatStatus();
+    setChatBusy(false);
+    currentAbortController = null;
   }
 }
-
 function appendMsg(text, role) {
   const box = document.getElementById('chatMessages');
   const div = document.createElement('div');
@@ -964,20 +1171,29 @@ function appendMsg(text, role) {
   box.scrollTop = box.scrollHeight;
 }
 
-function appendTyping() {
-  const box = document.getElementById('chatMessages');
-  const div = document.createElement('div');
-  div.className = 'msg ai typing';
-  div.id = 'typingIndicator';
-  div.innerHTML = '<span></span><span></span><span></span>';
-  box.appendChild(div);
-  box.scrollTop = box.scrollHeight;
+// ============================================================
+// 聊天输入框
+// ============================================================
+const chatInputEl = document.getElementById('chatInput');
+
+function autoGrowChatInput() {
+  chatInputEl.style.height = 'auto';
+  chatInputEl.style.height = `${Math.min(chatInputEl.scrollHeight, 132)}px`;
 }
 
-function removeTyping() {
-  const el = document.getElementById('typingIndicator');
-  if (el) el.remove();
-}
+chatInputEl.addEventListener('input', autoGrowChatInput);
+
+chatInputEl.addEventListener('keydown', (e) => {
+  // isComposing：中文输入法候选框回车时不发送
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+    e.preventDefault();
+    sendChat();
+  }
+});
+
+document.getElementById('chatStopBtn').addEventListener('click', () => {
+  if (currentAbortController) currentAbortController.abort();
+});
 
 // ============================================================
 // 快捷提问
@@ -987,7 +1203,8 @@ document.querySelectorAll('.quick-prompt-btn').forEach(btn => {
     if (isChatting) return;
     const prompt = btn.dataset.prompt;
     if (!prompt) return;
-    document.getElementById('chatInput').value = prompt;
+    chatInputEl.value = prompt;
+    autoGrowChatInput();
     sendChat();
   });
 });

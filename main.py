@@ -1,6 +1,9 @@
-from movie_agent import run_movie_agent
+from langgraph_movie_agent import run_movie_graph_agent
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from langgraph_movie_agent import stream_movie_agent
+import uuid
 from schemas import (
     MovieCreate,
     MovieResponse,
@@ -25,6 +28,17 @@ from database import (
     update_user_memory,
     get_user_memory,
 )
+
+
+import logging
+
+# 配置日志格式
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+# 创建一个 logger
+logger = logging.getLogger(__name__)
 app = FastAPI()
 
 app.add_middleware(
@@ -173,12 +187,21 @@ def delete_movie_api(movie_id:int):
 )
 def ai_chat(request: AIChatRequest):
     try:
-        answer = run_movie_agent(
+        request_id = str(uuid.uuid4())[:8]
+        logger.info(
+            "[%s] 收到AI请求 session_id=%s",
+            request_id,
+            request.session_id,
+        )
+        answer = run_movie_graph_agent(
             user_input=request.message,
             session_id=request.session_id,
             user_id=request.user_id
         )
-
+        logger.info(
+            "[%s] AI请求完成",
+            request_id,
+        )
         return {
             "session_id": request.session_id,
             "answer": answer,
@@ -226,3 +249,20 @@ def get_memory(user_id: str):
         )
 
     return memory
+
+
+@app.post(
+    "/ai/chat/stream"
+)
+def ai_chat_stream(
+    request: AIChatRequest
+):
+
+    return StreamingResponse(
+        stream_movie_agent(
+            user_input=request.message,
+            session_id=request.session_id,
+            user_id=request.user_id,
+        ),
+        media_type="application/x-ndjson",
+    )

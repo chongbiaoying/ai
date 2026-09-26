@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>电影资料查询系统</title>
+<title>电影资料库</title>
 
 <script>
 (function () {
   const THEME_KEY = 'movie_theme';
-  const saved = localStorage.getItem(THEME_KEY) || 'auto';
+  const saved = localStorage.getItem(THEME_KEY) || 'light';
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const effective = saved === 'auto' ? (systemDark ? 'dark' : 'light') : saved;
   document.documentElement.setAttribute('data-theme', effective);
@@ -20,19 +20,40 @@
 </head>
 <body>
 
-<!-- ========== 左侧电影区 ========== -->
-<div class="main">
-  <div class="header">
-    <h1>🎬 电影资料查询系统</h1>
-    <div class="header-actions">
+<!-- ========== 左栏 · 电影库 ========== -->
+<div class="library">
+  <header class="masthead">
+    <div>
+      <div class="kicker">MOVIE ARCHIVE</div>
+      <h1>电影资料库</h1>
       <div class="count" id="totalCount">加载中…</div>
-      <button class="icon-btn" id="prefBtn" title="偏好设置">⚙️</button>
-      <button class="icon-btn" id="themeToggle" title="切换主题">🌓</button>
     </div>
-  </div>
+    <div class="masthead-side">
+      <div class="masthead-actions">
+        <button class="icon-btn" id="prefBtn" title="偏好设置" aria-label="偏好设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <path d="M4 7h9M17 7h3M4 17h3M11 17h9"/>
+            <circle cx="15" cy="7" r="2.2"/>
+            <circle cx="9" cy="17" r="2.2"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="themeToggle" title="切换主题" aria-label="切换主题"></button>
+      </div>
+
+      <div class="sort-control">
+        <select id="sortField" title="排序字段">
+          <option value="default">默认排序</option>
+          <option value="score">按评分</option>
+          <option value="year">按年份</option>
+          <option value="name">按名称</option>
+        </select>
+        <button class="sort-order-btn" id="sortOrderBtn" title="切换升序/降序">↓</button>
+      </div>
+    </div>
+  </header>
 
   <div class="toolbar">
-    <div class="search-wrapper">
+    <div class="field field-search search-wrapper">
       <input id="searchInput" placeholder="搜索电影名…" autocomplete="off" />
       <div class="search-history" id="searchHistory" hidden>
         <div class="search-history-header">
@@ -43,27 +64,22 @@
       </div>
     </div>
 
-    <input id="filterScore" type="number" placeholder="最低评分" min="0" max="10" step="0.1" />
-    <input id="filterYear" type="number" placeholder="年份" min="1888" />
+    <div class="field field-num">
+      <input id="filterScore" type="number" placeholder="最低评分" min="0" max="10" step="0.1" />
+    </div>
+    <div class="field field-num">
+      <input id="filterYear" type="number" placeholder="年份" min="1888" />
+    </div>
+
     <button class="btn btn-primary" onclick="doSearch()">搜索 / 过滤</button>
     <button class="btn btn-ghost" onclick="resetSearch()">重置</button>
     <button class="btn btn-success" onclick="openCreate()">+ 新增电影</button>
-
-    <div class="sort-control">
-      <select id="sortField" title="排序字段">
-        <option value="default">默认排序</option>
-        <option value="score">按评分</option>
-        <option value="year">按年份</option>
-        <option value="name">按名称</option>
-      </select>
-      <button class="sort-order-btn" id="sortOrderBtn" title="切换升序/降序">↓</button>
-    </div>
   </div>
 
-  <div id="movieGrid" class="grid"></div>
-  <div id="emptyHint" class="empty" style="display:none">
-    <div class="emoji">🎞️</div>
-    <div>没有找到电影</div>
+  <div id="movieList" class="list"></div>
+  <div id="emptyHint" class="empty">
+    <div class="empty-title">没有找到电影</div>
+    <div class="empty-sub">换个关键词，或放宽筛选条件试试</div>
   </div>
 
   <div class="pager">
@@ -73,15 +89,15 @@
   </div>
 </div>
 
-<!-- ========== 右侧 AI 聊天区 ========== -->
-<div class="chat">
+<!-- ========== 右栏 · AI 助手 ========== -->
+<aside class="chat">
   <div class="chat-header">
-    <div class="dot"></div>
-    🤖 AI 电影助手
+    <strong>AI 助手</strong>
+    <div class="chat-sub"><span class="dot"></span>在线 · 可查资料 / 推荐影片</div>
   </div>
 
   <div id="chatMessages" class="chat-messages">
-    <div class="msg ai">你好！可以问我推荐电影、查询资料等问题。</div>
+    <div class="msg ai">你好。可以让我推荐影片，或帮你查电影资料。</div>
   </div>
 
   <div class="quick-prompts" id="quickPrompts">
@@ -92,17 +108,17 @@
   </div>
 
   <div class="chat-input">
-    <input id="chatInput" placeholder="输入你的问题…"
-           onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendChat()}" />
-    <button onclick="sendChat()">发送</button>
+    <textarea id="chatInput" rows="1" placeholder="输入你的问题…" title="Enter 发送，Shift + Enter 换行"></textarea>
+    <button id="chatStopBtn" type="button" title="停止生成" hidden>停止</button>
+    <button id="chatSendBtn" type="button" onclick="sendChat()">发送</button>
   </div>
-</div>
+</aside>
 
-<!-- ========== 偏好设置弹窗 ========== -->
+<!-- ========== 偏好设置 ========== -->
 <div id="prefModal" class="modal" onclick="if(event.target===this)closePref()">
   <div class="pref-box">
     <div class="pref-header">
-      <h2>⚙️ 偏好设置</h2>
+      <h2>偏好设置</h2>
       <button class="pref-close" onclick="closePref()" title="关闭">×</button>
     </div>
     <p class="pref-hint">告诉 AI 助手你的口味，推荐会更贴合你。</p>
@@ -132,9 +148,10 @@
   </div>
 </div>
 
-<!-- ========== 新增 / 编辑弹窗 ========== -->
+<!-- ========== 新增 / 编辑 ========== -->
 <div id="modal" class="modal" onclick="if(event.target===this)closeModal()">
   <div class="modal-box" onkeydown="if(event.key==='Escape')closeModal(); if(event.key==='Enter'){event.preventDefault();submitModal();}">
+    <div class="kicker">EDIT ENTRY</div>
     <h2 id="modalTitle">新增电影</h2>
     <input id="mName" placeholder="电影名" />
     <input id="mScore" type="number" placeholder="评分 (0-10)" min="0" max="10" step="0.1" />
@@ -147,10 +164,10 @@
   </div>
 </div>
 
-<!-- ========== 电影详情弹窗 ========== -->
+<!-- ========== 电影详情 ========== -->
 <div id="detailModal" class="modal" onclick="if(event.target===this)closeDetail()">
   <div class="detail-box">
-    <div class="detail-poster" id="detailPoster">🎬</div>
+    <div class="kicker">条目详情</div>
     <h2 id="detailName">—</h2>
     <div class="detail-stats">
       <div class="stat">
@@ -173,7 +190,7 @@
   </div>
 </div>
 
-<!-- ========== 确认弹窗 ========== -->
+<!-- ========== 确认 ========== -->
 <div id="confirmModal" class="modal">
   <div class="confirm-box">
     <div class="icon" id="confirmIcon">⚠️</div>
