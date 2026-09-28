@@ -1,9 +1,12 @@
 import sqlite3
 from pathlib import Path
 
+from logging_config import get_logger
+
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_FILE = BASE_DIR / "movies.db"
+logger = get_logger(__name__)
 
 
 def init_database():
@@ -37,15 +40,15 @@ def init_database():
 
         connection.commit()
 
-    except sqlite3.Error as error:
+    except sqlite3.Error:
         connection.rollback()
-        print(f"初始化数据库失败：{error}")
+        logger.exception("初始化数据库失败")
         raise
 
     finally:
         connection.close()
 
-    print("数据库初始化完成")
+    logger.info("数据库初始化完成")
 
 
 def add_movie(movie):
@@ -76,9 +79,9 @@ def add_movie(movie):
 
         return cursor.lastrowid
 
-    except sqlite3.Error as error:
+    except sqlite3.Error:
         connection.rollback()
-        print(f"添加电影失败：{error}")
+        logger.exception("添加电影失败")
         raise
 
     finally:
@@ -107,8 +110,8 @@ def get_all_movies():
             for row in rows
         ]
 
-    except sqlite3.Error as error:
-        print(f"查询全部电影失败：{error}")
+    except sqlite3.Error:
+        logger.exception("查询全部电影失败")
         raise
 
     finally:
@@ -138,8 +141,8 @@ def get_movie_by_id(movie_id: int):
 
         return dict(row)
 
-    except sqlite3.Error as error:
-        print(f"根据 ID 查询电影失败：{error}")
+    except sqlite3.Error:
+        logger.exception("根据 ID 查询电影失败")
         raise
 
     finally:
@@ -178,8 +181,8 @@ def get_movies_page(
             for row in rows
         ]
 
-    except sqlite3.Error as error:
-        print(f"分页查询电影失败：{error}")
+    except sqlite3.Error:
+        logger.exception("分页查询电影失败")
         raise
 
     finally:
@@ -203,8 +206,8 @@ def get_movie_count():
 
         return row[0]
 
-    except sqlite3.Error as error:
-        print(f"查询电影总数失败：{error}")
+    except sqlite3.Error:
+        logger.exception("查询电影总数失败")
         raise
 
     finally:
@@ -248,9 +251,9 @@ def update_movie(
 
         return get_movie_by_id(movie_id)
 
-    except sqlite3.Error as error:
+    except sqlite3.Error:
         connection.rollback()
-        print(f"更新电影失败：{error}")
+        logger.exception("更新电影失败")
         raise
 
     finally:
@@ -298,9 +301,9 @@ def partial_update_movie(
 
         return get_movie_by_id(movie_id)
 
-    except sqlite3.Error as error:
+    except sqlite3.Error:
         connection.rollback()
-        print(f"部分更新电影失败：{error}")
+        logger.exception("部分更新电影失败")
         raise
 
     finally:
@@ -342,9 +345,9 @@ def delete_movie(movie_id: int):
 
         return movie
 
-    except sqlite3.Error as error:
+    except sqlite3.Error:
         connection.rollback()
-        print(f"删除电影失败：{error}")
+        logger.exception("删除电影失败")
         raise
 
     finally:
@@ -381,8 +384,8 @@ def search_movies_db(keyword: str):
             for row in rows
         ]
 
-    except sqlite3.Error as error:
-        print(f"搜索电影失败：{error}")
+    except sqlite3.Error:
+        logger.exception("搜索电影失败")
         raise
 
     finally:
@@ -450,37 +453,8 @@ def filter_movies_db(
             for row in rows
         ]
 
-    except sqlite3.Error as error:
-        print(f"筛选电影失败：{error}")
-        raise
-
-    finally:
-        connection.close()
-
-
-def show_tables():
-    connection = sqlite3.connect(DATABASE_FILE)
-
-    try:
-        cursor = connection.cursor()
-
-        cursor.execute(
-            """
-            SELECT name
-            FROM sqlite_master
-            WHERE type = 'table'
-            """
-        )
-
-        tables = cursor.fetchall()
-
-        print(
-            "当前数据库中的表：",
-            tables,
-        )
-
-    except sqlite3.Error as error:
-        print(f"查看数据表失败：{error}")
+    except sqlite3.Error:
+        logger.exception("筛选电影失败")
         raise
 
     finally:
@@ -513,8 +487,8 @@ def get_user_memory(user_id: str):
 
         return dict(row)
 
-    except sqlite3.Error as error:
-        print(f"读取用户长期记忆失败：{error}")
+    except sqlite3.Error:
+        logger.exception("读取用户长期记忆失败")
         raise
 
     finally:
@@ -577,21 +551,10 @@ def update_user_memory(
 
         return get_user_memory(user_id)
 
-    except sqlite3.Error as error:
+    except sqlite3.Error:
         connection.rollback()
-        print(f"更新用户长期记忆失败：{error}")
+        logger.exception("更新用户长期记忆失败")
         raise
 
     finally:
         connection.close()
-
-
-if __name__ == "__main__":
-    init_database()
-
-    movies = get_movies_page(
-        page=1,
-        page_size=2,
-    )
-
-    print(movies)

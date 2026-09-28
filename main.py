@@ -1,9 +1,10 @@
-from langgraph_movie_agent import run_movie_graph_agent
+import uuid
+
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from langgraph_movie_agent import stream_movie_agent
-import uuid
+from langgraph_movie_agent import run_movie_graph_agent, stream_movie_agent
+from logging_config import get_logger
 from schemas import (
     MovieCreate,
     MovieResponse,
@@ -30,15 +31,7 @@ from database import (
 )
 
 
-import logging
-
-# 配置日志格式
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-# 创建一个 logger
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 app = FastAPI()
 
 app.add_middleware(
@@ -186,8 +179,8 @@ def delete_movie_api(movie_id:int):
     response_model=AIChatResponse,
 )
 def ai_chat(request: AIChatRequest):
+    request_id = str(uuid.uuid4())[:8]
     try:
-        request_id = str(uuid.uuid4())[:8]
         logger.info(
             "[%s] 收到AI请求 session_id=%s",
             request_id,
@@ -208,14 +201,12 @@ def ai_chat(request: AIChatRequest):
         }
 
     except Exception as error:
-        print(
-            f"Agent运行失败：{error}"
-        )
+        logger.exception("[%s] AI请求失败", request_id)
 
         raise HTTPException(
             status_code=500,
             detail="AI Agent服务暂时不可用",
-        )
+        ) from error
 
 
 @app.put(

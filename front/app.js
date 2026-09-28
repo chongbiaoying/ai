@@ -934,11 +934,7 @@ async function streamAIMessage(payload, onEvent, signal) {
   const handleLine = (line) => {
     const text = line.trim();
     if (!text) return;
-    try {
-      onEvent(JSON.parse(text));
-    } catch (_) {
-      // 忽略无法解析的行，避免整条流中断
-    }
+    onEvent(JSON.parse(text));
   };
 
   while (true) {
@@ -1026,17 +1022,15 @@ function renderAssistantBody(el, text, streaming) {
     const caret = '<span class="streaming-caret"></span>';
     const closers = ['</p>', '</li>', '</h2>', '</h3>', '</h4>', '</blockquote>'];
     let pos = -1;
-    let len = 0;
     for (const tag of closers) {
       const idx = html.lastIndexOf(tag);
       if (idx > pos) {
         pos = idx;
-        len = tag.length;
       }
     }
     html = pos === -1
       ? html + caret
-      : html.slice(0, pos) + caret + html.slice(pos + len);
+      : html.slice(0, pos) + caret + html.slice(pos);
   }
 
   el.innerHTML = html;
@@ -1086,6 +1080,7 @@ async function sendChat() {
 
   let aiText = '';
   let assistantEl = null;
+  let streamError = null;
 
   const controller = new AbortController();
   currentAbortController = controller;
@@ -1129,10 +1124,15 @@ async function sendChat() {
           case 'done':
             clearChatStatus();
             break;
+          case 'error':
+            streamError = event.message || 'AI 请求失败';
+            break;
         }
       },
       controller.signal
     );
+
+    if (streamError) throw new Error(streamError);
 
     if (assistantEl) {
       scheduleAssistantRender(assistantEl, aiText, false);

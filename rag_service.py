@@ -1,4 +1,6 @@
 from pathlib import Path
+from functools import lru_cache
+
 import chromadb
 from sentence_transformers import (
     SentenceTransformer,
@@ -17,17 +19,15 @@ CHROMA_DIR = (
 )
 
 
-embedding_model = SentenceTransformer(
-    "BAAI/bge-small-zh-v1.5"
-)
+@lru_cache(maxsize=1)
+def get_embedding_model():
+    return SentenceTransformer("BAAI/bge-small-zh-v1.5")
 
 
-chroma_client = chromadb.PersistentClient(
-    path=str(CHROMA_DIR)
-)
-
-collection = (
-    chroma_client.get_or_create_collection(
+@lru_cache(maxsize=1)
+def get_collection():
+    chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    return chroma_client.get_or_create_collection(
         name="movie_agent_knowledge",
         embedding_function=None,
         configuration={
@@ -36,7 +36,6 @@ collection = (
             }
         },
     )
-)
 
 
 def load_documents():
@@ -120,7 +119,7 @@ def build_knowledge_base():
         for chunk in chunks
     ]
 
-    vectors = embedding_model.encode(
+    vectors = get_embedding_model().encode(
         texts,
         normalize_embeddings=True,
     )
@@ -160,7 +159,7 @@ def build_knowledge_base():
             vector.tolist()
         )
 
-    collection.upsert(
+    get_collection().upsert(
         ids=ids,
         documents=documents_data,
         metadatas=metadatas,
@@ -179,13 +178,13 @@ def retrieve(
 ):
 
     query_vector = (
-        embedding_model.encode(
+        get_embedding_model().encode(
             query,
             normalize_embeddings=True,
         )
     )
 
-    result = collection.query(
+    result = get_collection().query(
         query_embeddings=[
             query_vector.tolist()
         ],

@@ -1,11 +1,10 @@
-import os
 import json
-from rag_service import retrieve
-from logging_config import get_logger
+import os
+from functools import lru_cache
 
-logger = get_logger(__name__)
 from dotenv import load_dotenv
 from openai import OpenAI
+
 
 from database import (
     get_movie_by_id,
@@ -18,15 +17,19 @@ from database import (
 
 load_dotenv()
 
-client = OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY"),
-    base_url=os.getenv("DEEPSEEK_BASE_URL"),
-)
+@lru_cache(maxsize=1)
+def get_client():
+    return OpenAI(
+        api_key=os.getenv("DEEPSEEK_API_KEY"),
+        base_url=os.getenv("DEEPSEEK_BASE_URL"),
+    )
 
 
 def search_knowledge_base(
     query: str,
 ):
+    from rag_service import retrieve
+
     results = retrieve(
         query=query,
         top_k=3,
@@ -278,14 +281,6 @@ def get_short_term_memory(
 
     return short_term_memory_store[session_id]
 
-def get_session_messages(session_id: str):
-    if session_id not in conversation_store:
-        conversation_store[session_id] = [
-            SYSTEM_MESSAGE.copy()
-        ]
-
-    return conversation_store[session_id]
-
 def execute_tool(
     tool_name: str,
     arguments_json: str,
@@ -303,6 +298,12 @@ def execute_tool(
             "success": False,
             "error":
                 f"工具参数解析失败：{error}",
+        }
+
+    if not isinstance(arguments, dict):
+        return {
+            "success": False,
+            "error": "工具参数必须是 JSON 对象",
         }
 
     tool_info = tool_registry.get(
@@ -387,102 +388,4 @@ SYSTEM_MESSAGE = {
         "不要使用知识库工具代替电影数据库查询。"
     ),
 }
-
-conversation_store = {}
-
-def run_movie_agent(
-    user_input: str,
-    session_id: str,
-    user_id: str,
-    max_steps: int = 5,
-) -> str:
-
-    messages = get_session_messages(
-        session_id
-    )
-
-    messages.append(
-        {
-            "role": "user",
-            "content": user_input,
-        }
-    )
-
-    for step in range(max_steps):
-
-        context_messages = messages.copy()
-
-        long_term_memory_message = (
-            build_long_term_memory_message(
-                user_id
-            )
-        )
-
-        short_term_memory_message = (
-            build_memory_message(
-                session_id
-            )
-        )
-
-        insert_index = 1
-
-        if long_term_memory_message is not None:
-            context_messages.insert(
-                insert_index,
-                long_term_memory_message,
-            )
-            insert_index += 1
-
-        if short_term_memory_message is not None:
-            context_messages.insert(
-                insert_index,
-                short_term_memory_message,
-            )
-
-        response = client.chat.completions.create(
-            model="deepseek-flash",
-            messages=context_messages,
-            tools=tool_schemas,
-        )
-
-        message = response.choices[0].message
-
-        if not message.tool_calls:
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.content,
-                }
-            )
-
-            return message.content
-
-        messages.append(message)
-
-        for tool_call in message.tool_calls:
-
-            tool_result = execute_tool(
-                tool_call,
-                user_id=user_id,
-            )
-
-            update_short_term_memory(
-                session_id=session_id,
-                tool_result=tool_result,
-            )
-
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": json.dumps(
-                        tool_result,
-                        ensure_ascii=False,
-                    ),
-                }
-            )
-
-    raise RuntimeError(
-        f"Agent执行超过最大轮数：{max_steps}"
-    )
 

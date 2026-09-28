@@ -1,5 +1,6 @@
 import asyncio
 import sys
+from pathlib import Path
 
 from mcp import (
     Client,
@@ -12,7 +13,7 @@ async def main():
     server = StdioServerParameters(
         command=sys.executable,
         args=[
-            "movie_mcp_server.py"
+            str(Path(__file__).resolve().with_name("movie_mcp_server.py"))
         ],
     )
 
@@ -38,4 +39,5 @@ async def main():
         print(result)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

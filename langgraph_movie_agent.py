@@ -1,18 +1,20 @@
 import json
+import logging
+import operator
+from typing import Annotated
+
 from langgraph.checkpoint.memory import InMemorySaver
-from typing_extensions import TypedDict
 from langgraph.config import get_stream_writer
+from langgraph.errors import GraphRecursionError
 from langgraph.graph import (
     StateGraph,
     START,
     END,
 )
-import operator
-from typing import Annotated
-from langgraph.errors import GraphRecursionError
+from typing_extensions import TypedDict
 
 from movie_agent import (
-    client,
+    get_client,
     tool_schemas,
     execute_tool,
 
@@ -20,14 +22,15 @@ from movie_agent import (
     build_memory_message,
     update_short_term_memory,
     SYSTEM_MESSAGE,
-    get_session_messages,
-    conversation_store,
 )
+
+logger = logging.getLogger(__name__)
 checkpointer = InMemorySaver()
 
-# =====================================
-# 1. 定义整个 Agent 的 State
-# =====================================
+
+def session_key(user_id: str, session_id: str) -> str:
+    """Scope process-local conversation state to a user and a session."""
+    return json.dumps([user_id, session_id], ensure_ascii=False)
 
 class MovieAgentState(TypedDict):
     messages: Annotated[
@@ -40,42 +43,6 @@ class MovieAgentState(TypedDict):
 
     pending_tool_calls: list
 
-
-# =====================================
-# 2. 把 DeepSeek 返回消息转换成普通 dict
-# =====================================
-
-def convert_assistant_message(message):
-
-    result = {
-        "role": "assistant",
-        "content": message.content,
-    }
-
-    if message.tool_calls:
-
-        result["tool_calls"] = []
-
-        for tool_call in message.tool_calls:
-
-            result["tool_calls"].append(
-                {
-                    "id": tool_call.id,
-                    "type": "function",
-
-                    "function": {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments,
-                    },
-                }
-            )
-
-    return result
-
-
-# =====================================
-# 3. LLM Node
-# =====================================
 
 def llm_node(
     state: MovieAgentState
@@ -110,7 +77,7 @@ def llm_node(
 
     short_term_memory_message = (
         build_memory_message(
-            session_id
+            session_key(user_id, session_id)
         )
     )
 
@@ -135,7 +102,7 @@ def llm_node(
     # =========================
 
     response_stream = (
-        client.chat.completions.create(
+        get_client().chat.completions.create(
             model="deepseek-flash",
             messages=context_messages,
             tools=tool_schemas,
@@ -301,10 +268,6 @@ def llm_node(
             tool_calls,
     }
 
-# =====================================
-# 4. Router
-# =====================================
-
 def route_after_llm(
     state: MovieAgentState
 ):
@@ -315,22 +278,10 @@ def route_after_llm(
 
     if tool_calls:
 
-        print(
-            "模型决定调用工具 → Tool Node"
-        )
-
         return "tools"
-
-    print(
-        "模型已经生成最终回答 → END"
-    )
 
     return "end"
 
-
-# =====================================
-# 5. Tool Node
-# =====================================
 
 def tool_node(
     state: MovieAgentState
@@ -386,7 +337,7 @@ def tool_node(
         )
 
         update_short_term_memory(
-            session_id=session_id,
+            session_id=session_key(user_id, session_id),
             tool_result=tool_result,
         )
 
@@ -426,10 +377,6 @@ def tool_node(
 
         "pending_tool_calls": [],
     }
-# =====================================
-# 6. 构建 Graph
-# =====================================
-
 builder = StateGraph(
     MovieAgentState
 )
@@ -481,10 +428,6 @@ builder.add_edge(
 movie_graph = builder.compile(checkpointer=checkpointer)
 
 
-# =====================================
-# 7. 对外提供调用函数
-# =====================================
-
 def run_movie_graph_agent(
     user_input: str,
     session_id: str,
@@ -515,7 +458,7 @@ def run_movie_graph_agent(
         "configurable": {
 
             "thread_id":
-                session_id,
+                session_key(user_id, session_id),
         },
 
         "recursion_limit":
@@ -547,59 +490,12 @@ def run_movie_graph_agent(
         "content"
     ]
 
-# =====================================
-# 8. 本地测试
-# =====================================
-
-def test_graph_stream(
-    user_input: str,
-    session_id: str,
-    user_id: str,
-):
-
-    initial_state = {
-        "messages": [
-            {
-                "role": "user",
-                "content": user_input,
-            }
-        ],
-
-        "session_id": session_id,
-        "user_id": user_id,
-        "pending_tool_calls": [],
-    }
-
-    config = {
-        "configurable": {
-            "thread_id": session_id,
-        }
-    }
-
-    for mode, chunk in movie_graph.stream(
-            initial_state,
-            config=config,
-            stream_mode=[
-                "updates",
-                "custom",
-            ],
-    ):
-        print(
-            "\n模式：",
-            mode
-        )
-
-        print(
-            "数据：",
-            chunk
-        )
-
-
 def stream_movie_agent(
     user_input: str,
     session_id: str,
     user_id: str,
 ):
+    logger.info("流式 AI 请求开始 session_id=%s", session_id)
 
     initial_state = {
 
@@ -624,44 +520,24 @@ def stream_movie_agent(
         "configurable": {
 
             "thread_id":
-                session_id,
+                session_key(user_id, session_id),
         }
     }
 
-    for mode, chunk in movie_graph.stream(
-
-        initial_state,
-
-        config=config,
-
-        stream_mode=[
-            "updates",
-            "custom",
-        ],
-    ):
-
-        if mode != "custom":
-            continue
-
-        yield (
-            json.dumps(
-                chunk,
-                ensure_ascii=False,
-            )
-            + "\n"
-        )
-
-
-
-
-
-
-
-
-if __name__ == "__main__":
-
-    test_graph_stream(
-        user_input="推荐一部9分以上的电影",
-        session_id="stream-test-001",
-        user_id="user-001",
-    )
+    try:
+        for mode, chunk in movie_graph.stream(
+            initial_state,
+            config=config,
+            stream_mode=["custom"],
+        ):
+            if mode == "custom":
+                yield json.dumps(chunk, ensure_ascii=False) + "\n"
+    except Exception:
+        logger.exception("流式 Agent 执行失败 session_id=%s", session_id)
+        yield json.dumps(
+            {"type": "error", "message": "AI Agent服务暂时不可用"},
+            ensure_ascii=False,
+        ) + "\n"
+    else:
+        logger.info("流式 AI 请求完成 session_id=%s", session_id)
+        yield json.dumps({"type": "done"}, ensure_ascii=False) + "\n"
